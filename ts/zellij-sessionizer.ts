@@ -9,6 +9,8 @@ const ANSI_RED = "\x1B[31m"
 const ANSI_GREEN = "\x1B[32m"
 const ANSI_YELLOW = "\x1B[33m"
 
+const a = JSON.parse('{"hello": "world"}');
+const b = {hello: "world"};
 
 type Path = string;
 
@@ -104,7 +106,7 @@ function main(paths: Path[]): number | undefined {
 
   const sessionName = path.basename(selectedPath).replace('.', '_');
   process.chdir(selectedPath)
-  execSync(`/usr/bin/env zellij attach "${sessionName}" -c`);
+  execSync(`zellij attach "${sessionName}" -c`);
 }
 
 const code = main(process.argv.slice(2))
