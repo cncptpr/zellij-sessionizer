@@ -1,176 +1,144 @@
 const std = @import("std");
-const fs = std.fs;
-const process = std.process;
-const mem = std.mem;
 
-// ANSI colour codes
+const ZSErrors = error{ ZELLIJ_ENVIRONMENT_DETECTED, NO_PATHS_SPECIFIED, DIR_NOT_FOUND, NO_VALIDE_DIR_FOUND, ZELLIJ_LAUNCH_FAILED, FZF_NO_OUTPUT, FZF_FAILED_TO_EXECUTE };
+
 const ANSI_RESET = "\x1B[0m";
 const ANSI_RED = "\x1B[31m";
 const ANSI_GREEN = "\x1B[32m";
 const ANSI_YELLOW = "\x1B[33m";
 
+// TODO: Maybe `isDir` is the wrong name. Something like `shouldAppendPath` might be better.
 fn isDir(path: []const u8) bool {
-    var stat = std.fs.File.Stat{};
-    const result = std.fs.cwd().statFile(path, &stat);
-    return result == .Success and stat.kind == .Directory;
+    const result = std.fs.cwd().statFile(path) catch return false;
+    return result.kind == .directory;
 }
 
-// Append a single directory path to the list if it exists
-fn appendPath(allocator: *std.mem.Allocator, list: *std.ArrayList([]const u8), path: []const u8) !bool {
+fn appendPath(gpa: std.mem.Allocator, list: *std.ArrayList([]const u8), path: []const u8) !void {
     if (isDir(path)) {
-        try list.append(try allocator.dupe(u8, path));
-        try list.append("\n");
-        return true;
+        try list.append(gpa, path);
     }
-    return false;
 }
 
-// Expand a pattern ending with "/*" and add all entries inside the directory
-fn appendAllPaths(allocator: *std.mem.Allocator, list: *std.ArrayList([]const u8), path: []const u8) !bool {
+fn appendAllPaths(gpa: std.mem.Allocator, list: *std.ArrayList([]const u8), path: []const u8) !void {
     const suffix = "/*";
-    if (!mem.endsWith(u8, path, suffix)) {
+    if (!std.mem.endsWith(u8, path, suffix)) {
         // Not a glob – just treat it as a normal path
-        return try appendPath(allocator, list, path);
+        return try appendPath(gpa, list, path);
     }
 
     const base_len = path.len - suffix.len;
-    const base_path = try allocator.dupe(u8, path[0..base_len]);
+
+    const base_path = try gpa.dupe(u8, path[0..base_len]);
+    defer gpa.free(base_path);
 
     if (!isDir(base_path)) {
         std.debug.print(ANSI_YELLOW ++ "Warning:" ++ ANSI_RESET ++ " Directory not found: {s}\n", .{base_path});
-        allocator.free(base_path);
-        return false;
+        return ZSErrors.DIR_NOT_FOUND;
     }
 
-    const dir = try fs.cwd().openDir(base_path, .{ .iterate = true });
+    var dir = try std.fs.cwd().openDir(base_path, .{ .iterate = true });
     defer dir.close();
 
-    var it = try dir.iterate();
+    var it = dir.iterate();
     while (try it.next()) |entry| {
-        if (entry.name[0] == '.' and (mem.eql(u8, entry.name, ".") or mem.eql(u8, entry.name, ".."))) continue;
+        if (entry.name[0] == '.' and (std.mem.eql(u8, entry.name, ".") or std.mem.eql(u8, entry.name, ".."))) continue;
 
-        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ base_path, entry.name });
-        defer allocator.free(full_path);
-        _ = try appendPath(allocator, list, full_path);
+        const full_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ base_path, entry.name });
+        _ = try appendPath(gpa, list, full_path);
     }
-
-    allocator.free(base_path);
-    return true;
 }
 
-// Run fzf with the given list and capture the selected line
-fn fzf(allocator: *std.mem.Allocator, list: []const u8, out_result: []u8) !bool {
-    // Build the command: printf '%s\n' '<list>' | fzf
-    const cmd = try std.fmt.allocPrint(allocator, "printf '%s\\n' '{s}' | fzf", .{list});
-    defer allocator.free(cmd);
+fn fzf(gpa: std.mem.Allocator, paths: *std.ArrayList([]const u8)) ![]const u8 {
+    const paths_joined = try std.mem.join(gpa, "\n", paths.items);
+    defer gpa.free(paths_joined);
 
-    var child = try process.Child.init(&.{ "sh", "-c", cmd }, allocator);
-    defer child.deinit();
+    const cmd = try std.fmt.allocPrint(gpa, "printf '%s\\n' '{s}' | fzf", .{paths_joined});
+    defer gpa.free(cmd);
+
+    var child = std.process.Child.init(&.{ "sh", "-c", cmd }, gpa);
 
     child.stdout_behavior = .Pipe;
     try child.spawn();
 
     const stdout = child.stdout.?;
-    const read = try stdout.readAllAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(read);
+    const read = try stdout.readToEndAlloc(gpa, std.math.maxInt(usize));
+    errdefer gpa.free(read);
 
-    // fzf writes the selected line (without trailing newline)
     const trimmed = std.mem.trim(u8, read, "\r\n");
-    if (trimmed.len == 0) return false;
-
-    const copy_len = @min(trimmed.len, out_result.len - 1);
-    std.mem.copy(u8, out_result[0..copy_len], trimmed[0..copy_len]);
-    out_result[copy_len] = 0;
+    if (trimmed.len == 0) return ZSErrors.FZF_NO_OUTPUT;
 
     const status = try child.wait();
-    return status == .Exited and status.Exited == 0;
+    std.debug.print("{}", .{status});
+    if (status == .Exited and status.Exited != 0)
+        return ZSErrors.FZF_FAILED_TO_EXECUTE;
+    return trimmed;
 }
 
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+    const gpa = std.heap.page_allocator;
 
-    // Detect Zellij environment
-    if (std.os.getenv("ZELLIJ") != null) {
-        std.debug.print(
-            ANSI_RED ++ "Zellij environment detected!" ++ ANSI_RESET ++ "\n" ++
-                "Script only works outside of Zellij.\n\n" ++
-                "This is because nested Zellij sessions are not recommended,\n" ++
-                "and it is currently not possible to change Zellij sessions\n" ++
-                "from within a script.\n\n" ++
-                "Exit Zellij and try again,\n" ++
-                "or unset " ++ ANSI_GREEN ++ "ZELLIJ" ++ ANSI_RESET ++
-                " env var to force this script to work.\n",
-        );
-        return error.ExitCode(1);
-    }
+    // if (std.process.getEnvVarOwned(gpa, "ZELLIJ")) |_| {
+    //     std.debug.print(ANSI_RED ++ "Zellij environment detected!" ++ ANSI_RESET ++ "\n" ++
+    //         "Script only works outside of Zellij.\n\n" ++
+    //         "This is because nested Zellij sessions are not recommended,\n" ++
+    //         "and it is currently not possible to change Zellij sessions\n" ++
+    //         "from within a script.\n\n" ++
+    //         "Exit Zellij and try again,\n" ++
+    //         "or unset " ++ ANSI_GREEN ++ "ZELLIJ" ++ ANSI_RESET ++
+    //         " env var to force this script to work.\n", .{});
+    //     return ZSErrors.ZELLIJ_ENVIRONMENT_DETECTED;
+    // } else |err| if (err != std.process.GetEnvVarOwnedError.EnvironmentVariableNotFound) {
+    //     return err;
+    // }
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
     if (args.len < 2) {
         std.debug.print("No paths were specified, usage: ./zellij-sessionizer path1 path2/* etc..\n", .{});
-        return error.ExitCode(1);
+        return ZSErrors.NO_PATHS_SPECIFIED;
     }
 
-    var candidates = std.ArrayList([]const u8).init(allocator);
+    var candidates = std.ArrayList([]const u8).empty;
     defer {
-        for (candidates.items) |s| allocator.free(s);
-        candidates.deinit();
+        for (candidates.items) |s| gpa.free(s);
+        candidates.deinit(gpa);
     }
 
-    // Process each argument
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        const ok = try appendAllPaths(allocator, &candidates, args[i]);
-        if (!ok) {
-            std.debug.print(ANSI_YELLOW ++ "Warning:" ++ ANSI_RESET ++ " Directory not found: {s}\n", .{args[i]});
-        }
+    for (args) |arg| {
+        appendAllPaths(gpa, &candidates, arg) catch
+            std.debug.print(ANSI_YELLOW ++ "Warning:" ++ ANSI_RESET ++ " Directory not found: {s}\n", .{arg});
     }
 
     if (candidates.items.len == 0) {
         std.debug.print("No valid directories found to choose from.\n", .{});
-        return error.ExitCode(1);
+        return ZSErrors.NO_VALIDE_DIR_FOUND;
     }
 
-    // Join candidates into a single string
-    const list_str = try std.mem.concat(allocator, u8, candidates.items);
-    defer allocator.free(list_str);
-
-    var selected_path: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const ok = try fzf(allocator, list_str, &selected_path);
-    if (!ok or selected_path[0] == 0) return;
+    const result = try fzf(gpa, &candidates);
+    defer gpa.free(result);
+    if (!std.unicode.utf8ValidateSlice(result)) {
+        std.debug.print("result: invalide utf-8!!!!\n", .{});
+        return;
+    }
 
     // Derive session name from selected path
-    const sel = std.mem.sliceTo(&selected_path, 0);
-    const file_name = std.mem.lastIndexOf(u8, sel, "/");
-    var session_name: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-
-    if (file_name) |idx| {
-        const name_start = idx + 1;
-        const name = sel[name_start..];
-        // replace '.' with '_' in place
-        var tmp = try allocator.dupe(u8, name);
-        defer allocator.free(tmp);
-        for (tmp) |*c| {
-            if (c.* == '.') c.* = '_';
-        }
-        std.mem.copy(u8, &session_name, tmp);
-    } else {
-        std.mem.copy(u8, &session_name, sel);
-    }
-
-    // Change directory to the selected path
-    try std.fs.cwd().setCurrentDir(sel);
+    const file_name = std.fs.path.basename(result);
 
     // Run: zellij attach <session_name> -c
-    var cmd = process.Child.init(&.{ "zellij", "attach", session_name[0..std.mem.len(session_name)], "-c" }, allocator);
-    defer cmd.deinit();
-
-    const run_ok = try cmd.spawn();
-    if (!run_ok) {
-        std.debug.print("Failed launch zellij-session.\n", .{});
-        return error.ExitCode(1);
+    if (!std.unicode.utf8ValidateSlice(file_name)) {
+        std.debug.print("file_name: invalide utf-8!!!!\n", .{});
+        return;
     }
+
+    std.debug.print("{s}\n", .{file_name});
+    var cmd = std.process.Child.init(&.{ "zellij", "attach", file_name, "-c" }, gpa);
+    cmd.cwd = result;
+
+    cmd.spawn() catch {
+        std.debug.print("Failed launch zellij-session.\n", .{});
+        return ZSErrors.ZELLIJ_LAUNCH_FAILED;
+    };
 
     // Wait for zellij to exit (optional)
     _ = try cmd.wait();
