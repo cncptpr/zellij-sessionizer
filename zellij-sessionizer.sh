@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 
-paths_input=$@
+# Why are arrays so weird in bash!?!
+# Why does nix force me to care about this!?!
+declare -a paths_input
+paths_input=("$@")
 
-if [[ -z $paths_input ]]; then
+if [[ ${#paths_input[@]} -eq 0 ]]; then
   echo "No paths were specified, usage: ./zellij-sessionizer path1 path2 etc.."
   exit 0
 fi
@@ -10,7 +13,7 @@ fi
 declare -a candidates
 
 # Process each input path
-for p in $paths_input; do
+for p in "${paths_input[@]}"; do
   if [[ "$p" == */\* ]]; then
     # Path ends with /*, so we want to list subdirectories
     # Remove the '/*' suffix
@@ -55,7 +58,9 @@ fi
 session_name=$(basename "$selected_path" | tr . _)
 
 # We're outside of zellij, so let's create a new session or attach to a new one.
-if [[ -z $ZELLIJ ]]; then
+# This was previously `-z ZELLIJ` but bash (the way nix configures it) complained about ZELLIJ being unbound.
+# now we have this... ( ! "${ZELLIJ+x}")
+if [[ ! "${ZELLIJ+x}" ]]; then
   cd "$selected_path" || exit 1 # Exit if cd fails
   # -c will make zellij to either create a new session or to attach into an existing one
   zellij attach "$session_name" -c
