@@ -134,7 +134,8 @@ int main(int argc, char *argv[]) {
   }
 
   Nob_Cmd cmd = {0};
-  chdir(selected_path);
+  int _ = chdir(selected_path);
+  (void) _;
   nob_cmd_append(&cmd, "zellij", "attach", session_name, "-c");
   if (!nob_cmd_run(&cmd)) {
     printf("Failed lanch zellij-session.");
