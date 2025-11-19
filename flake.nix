@@ -19,5 +19,17 @@
         runtimeInputs = with pkgs; [ fzf zellij ];
       };
     });
+
+    devShells = forAllSystems (pkgs: {
+      default = pkgs.mkShell {
+        packages = with pkgs; [
+          ocaml
+          opam
+        ];
+        shellHook = ''
+          eval (opam env)
+        '';
+      };
+    });
   };
 }
