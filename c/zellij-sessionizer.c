@@ -1,4 +1,3 @@
-#include <dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,47 +21,20 @@ bool is_dir(const char *path) {
 }
 
 bool append_path(Nob_String_Builder *list, const char *path) {
-  if (is_dir(path)) {
-    nob_sb_appendf(list, "%s\n", path);
+  char temp_path[PATH_MAX];
+  strncpy(temp_path, path, PATH_MAX - 1);
+  temp_path[PATH_MAX - 1] = '\0';
+
+  size_t len = strlen(temp_path);
+  if (len > 0 && temp_path[len - 1] == '/') {
+    temp_path[len - 1] = '\0';
+  }
+
+  if (is_dir(temp_path)) {
+    nob_sb_appendf(list, "%s\n", temp_path);
     return true;
   }
   return false;
-}
-
-bool append_all_paths(Nob_String_Builder *list, const char *path) {
-  if (strcmp(path + strlen(path) - 2, "/*") != 0) {
-    return append_path(list, path);
-  }
-
-  size_t base_len = strlen(path) - 2; // Remove the '/*' suffix
-  char *base_path = (char *)malloc(base_len + 1);
-  strncpy(base_path, path, base_len);
-  base_path[base_len] = '\0';
-
-  if (!is_dir(base_path)) {
-    printf(ANSI_YELLOW "Warning:" ANSI_RESET " Directory not found: %s\n",
-           base_path);
-    free(base_path);
-    return false;
-  }
-
-  struct dirent *entry;
-  DIR *dp = opendir(base_path);
-  if (dp == NULL) {
-    free(base_path);
-    return false;
-  }
-
-  while ((entry = readdir(dp)) != NULL) {
-    if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
-      char full_path[PATH_MAX];
-      snprintf(full_path, sizeof(full_path), "%s/%s", base_path, entry->d_name);
-      append_path(list, full_path);
-    }
-  }
-  closedir(dp);
-  free(base_path);
-  return true;
 }
 
 int fzf(const Nob_String_Builder *const list, char *const out_result,
@@ -72,7 +44,7 @@ int fzf(const Nob_String_Builder *const list, char *const out_result,
 
   FILE *fzf_handle = popen(fzf_cmd.items, "r");
   if (!fzf_handle) {
-    printf("" ANSI_RED "Error:" ANSI_RESET " Failed to execute fzf\n");
+    printf(ANSI_RED "Error:" ANSI_RESET " Failed to execute fzf\n");
     return 0;
   }
 
@@ -104,7 +76,7 @@ int main(int argc, char *argv[]) {
   Nob_String_Builder candidates = {0};
 
   for (int i = 1; i < argc; i++) {
-    if (!append_all_paths(&candidates, argv[i])) {
+    if (!append_path(&candidates, argv[i])) {
       printf(ANSI_YELLOW "Warning:" ANSI_RESET " Directory not found: %s\n",
              argv[i]);
     }
