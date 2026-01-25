@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 
+# What ungodly thing is [[ "${ZELLIJ+x}" ]];?
+if [[ "${ZELLIJ+x}" ]]; then
+    echo "Zellij environment detected!"
+    echo "Script only works outside of Zellij."
+    echo ""
+    echo "This is because nested Zellij sessions are not recommended,"
+    echo "and it is currently not possible to change Zellij sessions"
+    echo "from within a script."
+    echo ""
+    echo "Exit Zellij and try again,"
+    echo "or unset ZELLIJ env var to force this script to work."
+    exit 1
+fi
+
 # Why are arrays so weird in bash!?!
 # Why does nix force me to care about this!?!
 declare -a paths_input
@@ -14,30 +28,13 @@ declare -a candidates
 
 # Process each input path
 for p in "${paths_input[@]}"; do
-  if [[ "$p" == */\* ]]; then
-    # Path ends with /*, so we want to list subdirectories
-    # Remove the '/*' suffix
-    base_path="${p%/*}"
-    if [ -d "$base_path" ]; then
-      if [ -x "$(command -v fd)" ]; then
-        # Using fd for subdirectories
-        mapfile -t < <(fd . "$base_path" --min-depth 1 --max-depth 1 --type d)
-      else
-        # Using find for subdirectories
-        mapfile -t < <(find "$base_path" -mindepth 1 -maxdepth 1 -type d)
-      fi
-      candidates+=( "${MAPFILE[@]}" )
-    else
-      echo "Warning: Directory not found: $base_path" >&2
-    fi
+  # Remove trailing slash
+  p_normalized="${p%/}"
+  if [ -d "$p_normalized" ]; then
+    candidates+=( "$p_normalized" )
   else
-    # Path is a direct directory, add it if it exists and is a directory
-    if [ -d "$p" ]; then
-      candidates+=( "$p" )
-    else
-      echo "Warning: Directory not found: $p" >&2
-	  fi
-	fi
+    echo "Warning: Not a directory: $p_normalized" >&2
+  fi
 done
 
 # If no valid directories were found after processing, exit
@@ -57,19 +54,8 @@ fi
 # Get the name of the selected directory, replacing "." with "_"
 session_name=$(basename "$selected_path" | tr . _)
 
-# We're outside of zellij, so let's create a new session or attach to a new one.
-# This was previously `-z ZELLIJ` but bash (the way nix configures it) complained about ZELLIJ being unbound.
-# now we have this... ( ! "${ZELLIJ+x}")
-if [[ ! "${ZELLIJ+x}" ]]; then
-  cd "$selected_path" || exit 1 # Exit if cd fails
-  # -c will make zellij to either create a new session or to attach into an existing one
-  zellij attach "$session_name" -c
-  exit 0
-fi
+cd "$selected_path" || exit 1 # Exit if cd fails
 
-# We're inside zellij so we'll open a new pane and move into the selected directory
-zellij action new-pane
-
-# Hopefully they'll someday support specifying a directory and this won't be as laggy
-# thanks to @msirringhaus for getting this from the community some time ago!
-zellij action write-chars "cd \"$selected_path\"" && zellij action write 10
+# -c will make zellij to either create a new session or to attach into an existing one
+zellij attach "$session_name" -c
+exit 0
