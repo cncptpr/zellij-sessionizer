@@ -75,10 +75,21 @@ int main(int argc, char *argv[]) {
 
   Nob_String_Builder candidates = {0};
 
+  bool verbose = false;
+  for (int i = 1; i < argc; i++) {
+    verbose = !strcmp(argv[i], "-v");
+    if (verbose)
+      break;
+    verbose = !strcmp(argv[i], "--verbose");
+    if (verbose)
+      break;
+  }
+
   for (int i = 1; i < argc; i++) {
     if (!append_path(&candidates, argv[i])) {
-      printf(ANSI_YELLOW "Warning:" ANSI_RESET " Directory not found: %s\n",
-             argv[i]);
+      if (verbose)
+        printf(ANSI_YELLOW "Warning:" ANSI_RESET " Directory not found: %s\n",
+               argv[i]);
     }
   }
 
@@ -89,7 +100,7 @@ int main(int argc, char *argv[]) {
 
   char selected_path[PATH_MAX];
   int succes = fzf(&candidates, selected_path, sizeof(selected_path));
-  if (!succes || strcmp(selected_path,"") == 0)
+  if (!succes || strcmp(selected_path, "") == 0)
     return 0;
 
   char session_name[PATH_MAX];
@@ -107,7 +118,7 @@ int main(int argc, char *argv[]) {
 
   Nob_Cmd cmd = {0};
   int _ = chdir(selected_path);
-  (void) _;
+  (void)_;
   nob_cmd_append(&cmd, "zellij", "attach", session_name, "-c");
   if (!nob_cmd_run(&cmd)) {
     printf("Failed lanch zellij-session.");

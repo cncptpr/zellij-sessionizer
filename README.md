@@ -11,31 +11,38 @@ The c version is imo the best one, being noticeably faster than the bash one, wh
 In generall, I link the version that I am currently using into `~/.local/bin` (don't forget to add to PATH) or `/usr/bin/` (sudo required), or bring it into PATH any other way you like.
 Then I add an alias to my config, that has my directories configured.
 
-# Versions
+## Versions
+
 Quick summary for the versions:
 
 ## Bash
+
 Works great, just a bit slow and the code is... well, bash.
 
 ## Lua
+
 Works great, and I kinda like lua. This was also the first reimplementation.
 But lua needs a library for file system operations, wich needs to be installed over lua rocks.
 I couldn't figure out how environments work, so I just installed it gloably, python style.
 
-### Setup:
+### Setup
+
 1. Install `luac`
 1. Install `luarocks`
 1. `$ luarocks install luafilesystem` to install `luafilesystem`
 
 ## C
-Didn't wanna install everything lua, while setting up zellij sessionizer on a new machine, so I reimplemented it in c.
-Went relatively painless, though (`nob.h`)[https://github.com/tsoding/nob.h] helped a lot with string operations. I use it as a 'buildsystem', though it's main usage was in the actual program.
 
-### Compile:
+Didn't wanna install everything lua, while setting up zellij sessionizer on a new machine, so I reimplemented it in c.
+Went relatively painless, though [`nob.h`](https://github.com/tsoding/nob.h) helped a lot with string operations. I use it as a 'buildsystem', though it's main usage was in the actual program.
+
+### Compile
+
 1. `$ gcc -o nob nob.c` once for bootstapping
 1. `$ ./nob` to (re)compile
 
 ## Zig
+
 At this point I just wanted to try out more languages.
 
 Zig was exeptionally painfull:
@@ -50,6 +57,7 @@ Waste of time, but works.
 Compile like you would any other zig program with `$ zig build`
 
 ## Rust
+
 After zig I was a bit worried, until AI wrote code that almost just worked.
 To the two or so errors, rustc just told me the solution.
 
@@ -57,6 +65,7 @@ Quickes one to write, slowest one to compile. 10/10
 And apparently not in the repo? Where did it go? I'll find it somewhere.
 
 ## Ts and Gleam
+
 I like ts for writing scripts, and gleam is my favorite language.
 The ts version was quick to write (or let write).
 For gleam, the AI didn't even get the syntax right to a point where the highlighter recognised it...
@@ -72,18 +81,23 @@ To run `$ bun zellij-sessionizer.ts` and `$ gleam run` accordingly.
 The package.json for ts are just the node types for the lsp, no dependencies.
 
 ## Ocaml
+
 Not yet written.
 
 ## Python
+
 God, I hate python. Not coming.
 
 # TODO:
+
 For some reason I though I needed to do globbing myself. Turns out the shell does it for you. So...
-- [ ] Remove globbing
-  - [x] bash
-  - [ ] lua
-  - [x] c
-  - [ ] zig
-  - [ ] rust
-  - [ ] ts
-  - [ ] gleam
+
+|       | globbing | verbose |
+|  -    | -        | -       |
+| bash  | x        | -       |
+| lua   | -        | -       |
+| c     | x        | x       |
+| zig   | -        | -       |
+| rust  | -        | -       |
+| ts    | -        | -       |
+| gleam | -        | -       |
