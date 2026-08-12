@@ -77,19 +77,19 @@ fn fzf(gpa: std.mem.Allocator, paths: *std.ArrayList([]const u8)) ![]const u8 {
 pub fn main() !void {
     const gpa = std.heap.page_allocator;
 
-    // if (std.process.getEnvVarOwned(gpa, "ZELLIJ")) |_| {
-    //     std.debug.print(ANSI_RED ++ "Zellij environment detected!" ++ ANSI_RESET ++ "\n" ++
-    //         "Script only works outside of Zellij.\n\n" ++
-    //         "This is because nested Zellij sessions are not recommended,\n" ++
-    //         "and it is currently not possible to change Zellij sessions\n" ++
-    //         "from within a script.\n\n" ++
-    //         "Exit Zellij and try again,\n" ++
-    //         "or unset " ++ ANSI_GREEN ++ "ZELLIJ" ++ ANSI_RESET ++
-    //         " env var to force this script to work.\n", .{});
-    //     return ZSErrors.ZELLIJ_ENVIRONMENT_DETECTED;
-    // } else |err| if (err != std.process.GetEnvVarOwnedError.EnvironmentVariableNotFound) {
-    //     return err;
-    // }
+    if (std.process.getEnvVarOwned(gpa, "ZELLIJ")) |_| {
+        std.debug.print(ANSI_RED ++ "Zellij environment detected!" ++ ANSI_RESET ++ "\n" ++
+            "Script only works outside of Zellij.\n\n" ++
+            "This is because nested Zellij sessions are not recommended,\n" ++
+            "and it is currently not possible to change Zellij sessions\n" ++
+            "from within a script.\n\n" ++
+            "Exit Zellij and try again,\n" ++
+            "or unset " ++ ANSI_GREEN ++ "ZELLIJ" ++ ANSI_RESET ++
+            " env var to force this script to work.\n", .{});
+        return ZSErrors.ZELLIJ_ENVIRONMENT_DETECTED;
+    } else |err| if (err != std.process.GetEnvVarOwnedError.EnvironmentVariableNotFound) {
+        return err;
+    }
 
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
